@@ -1,10 +1,16 @@
+import com.google.common.base.Predicate;
+import com.google.common.cache.LoadingCache;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.io.Closeables;
 import com.google.inject.Module;
 import org.jclouds.ContextBuilder;
+import org.jclouds.compute.ComputeService;
+import org.jclouds.compute.domain.NodeMetadata;
 import org.jclouds.logging.slf4j.config.SLF4JLoggingModule;
 import org.jclouds.openstack.nova.v2_0.NovaApi;
+import org.jclouds.openstack.nova.v2_0.compute.functions.AllocateAndAddFloatingIpToNode;
 import org.jclouds.openstack.nova.v2_0.compute.loaders.LoadFloatingIpsForInstance;
+import org.jclouds.openstack.nova.v2_0.domain.FloatingIP;
 import org.jclouds.openstack.nova.v2_0.domain.Server;
 import org.jclouds.openstack.nova.v2_0.domain.regionscoped.RegionAndId;
 import org.jclouds.openstack.nova.v2_0.features.ServerApi;
@@ -13,10 +19,14 @@ import org.jclouds.openstack.nova.v2_0.options.CreateServerOptions;
 import java.io.Closeable;
 import java.io.IOException;
 import java.util.*;
+import java.util.concurrent.atomic.AtomicReference;
 
 public class JCloudsNova implements Closeable {
     private final NovaApi novaApi;
     private final Set<String> regions;
+
+/*    private final ComputeService computeService;*/
+    //https://github.com/jclouds/jclouds-examples/blob/master/rackspace/src/main/java/org/jclouds/examples/rackspace/cloudservers/ListServersWithFiltering.java
 
     public static void main(String[] args) throws IOException {
         JCloudsNova jcloudsNova = new JCloudsNova();
@@ -51,6 +61,13 @@ public class JCloudsNova implements Closeable {
                 .modules(modules)
                 .buildApi(NovaApi.class);
         regions = novaApi.getConfiguredRegions();
+
+/*       ComputeServiceContext context = ContextBuilder.newBuilder(PROVIDER)
+                .credentials(username, apiKey)
+                .buildView(ComputeServiceContext.class);
+        computeService = context.getComputeService();*/
+
+
     }
 
     //인스턴스의 이름과 전체 인스턴스의 리스트를 전달하면 인스턴스의 ID출력
@@ -61,6 +78,7 @@ public class JCloudsNova implements Closeable {
         }
         return null;
     }
+
     //현재 서버 전체의 리스트를 출력
     private void listServers() {
         for (String region : regions) {
@@ -71,6 +89,7 @@ public class JCloudsNova implements Closeable {
             }
         }
     }
+
     //현재 서버 전체의 리스트를 list에 담아서 리턴
     private List<Server> getInstancesInfo(){
         List<Server> servers = new ArrayList<Server>();
@@ -83,6 +102,7 @@ public class JCloudsNova implements Closeable {
         }
         return servers;
     }
+
     //인스턴스 id를 입력, 해당 인스턴스의 정보를 출력
     private void getInstanceInfo(String instanceId) {
         for (String region : regions) {
@@ -138,7 +158,7 @@ public class JCloudsNova implements Closeable {
         }
     }
 
-   //인스턴스 id를 입력하면, 할당된 floating ip를 출력
+   //인스턴스 id를 입력하면, 할당된 floating ip를 출력 (수정필요)
     private String loadFloatingIpsForInstance(String instatnceId) {
         for (String region : regions) {
 
@@ -159,6 +179,12 @@ public class JCloudsNova implements Closeable {
             }
         }
         return null;
+    }
+
+    public void allocateAndAddFloatingIpToNode(){
+        Predicate<AtomicReference<NodeMetadata>> nodeRunning = null;
+        LoadingCache<RegionAndId,Iterable<? extends FloatingIP>> floatingIpCache = null;
+        AllocateAndAddFloatingIpToNode allocateAndAddFloatingIpToNode = new AllocateAndAddFloatingIpToNode(nodeRunning, novaApi, floatingIpCache);
     }
 
     //CustomString 파서..
