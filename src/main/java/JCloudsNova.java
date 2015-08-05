@@ -29,7 +29,7 @@ public class JCloudsNova implements Closeable {
 //            jcloudsNova.stopServers();
 //            jcloudsNova.createInstance();
 //            System.out.println(jcloudsNova.getInstancesInfo().get(1).getId());
-
+            System.out.println(jcloudsNova.instanceNameToId("test_api_create_instance", jcloudsNova.getInstancesInfo()));
             jcloudsNova.close();
         } catch (Exception e) {
             e.printStackTrace();
@@ -53,10 +53,13 @@ public class JCloudsNova implements Closeable {
         regions = novaApi.getConfiguredRegions();
     }
 
+    //인스턴스의 이름과 전체 인스턴스의 리스트를 전달하면 인스턴스의 ID출력
     public String instanceNameToId(String instanceName,List<Server> servers){
-        String instanceId=null;
-
-        return instanceId;
+        for(Server server: servers){
+            if(server.getName().equals(instanceName))
+                return server.getId();
+        }
+        return null;
     }
     //현재 서버 전체의 리스트를 출력
     private void listServers() {
