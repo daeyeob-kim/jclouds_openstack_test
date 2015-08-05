@@ -53,6 +53,11 @@ public class JCloudsNova implements Closeable {
         regions = novaApi.getConfiguredRegions();
     }
 
+    public String instanceNameToId(String instanceName,List<Server> servers){
+        String instanceId=null;
+
+        return instanceId;
+    }
     //현재 서버 전체의 리스트를 출력
     private void listServers() {
         for (String region : regions) {
