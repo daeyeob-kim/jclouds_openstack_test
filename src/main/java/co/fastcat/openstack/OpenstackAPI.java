@@ -1,14 +1,21 @@
 package co.fastcat.openstack;
 
+import static org.testng.Assert.assertNotNull;
+
+import java.util.Set;
+
 import com.google.common.collect.ImmutableSet;
 import com.google.common.io.Closeables;
 import com.google.inject.Module;
+import com.google.common.base.Optional;
 import org.jclouds.ContextBuilder;
 import org.jclouds.logging.slf4j.config.SLF4JLoggingModule;
 import org.jclouds.openstack.nova.v2_0.NovaApi;
 import org.jclouds.openstack.nova.v2_0.compute.loaders.LoadFloatingIpsForInstance;
+import org.jclouds.openstack.nova.v2_0.domain.FloatingIP;
 import org.jclouds.openstack.nova.v2_0.domain.Server;
 import org.jclouds.openstack.nova.v2_0.domain.regionscoped.RegionAndId;
+import org.jclouds.openstack.nova.v2_0.extensions.FloatingIPApi;
 import org.jclouds.openstack.nova.v2_0.features.ServerApi;
 import org.jclouds.openstack.nova.v2_0.options.CreateServerOptions;
 import org.slf4j.Logger;
@@ -115,6 +122,7 @@ public class OpenstackAPI implements Closeable {
 
     // 인스턴스 생성 (REGION_NAME, 인스턴스 네임, 이미지 아이디, Flavor 아이디, 네트워크 아이디, 세팅할 관리자 계정 비밀번호, 키페어)
     public void createInstance(String getRegion, String getInstanceName, String getImageId, String getFlavorId, String getNetworkId, String getSettingPw, String getKeyPair) {
+
         CreateServerOptions option = new CreateServerOptions();
         option.networks(getNetworkId);
         option.adminPass(getSettingPw);
@@ -160,6 +168,24 @@ public class OpenstackAPI implements Closeable {
             System.out.println(keyValue[1].trim());
         }
         return tmpMap;
+    }
+
+    public void addFloatingIp() throws Exception {
+        for (String region : regions) {
+            Optional<? extends FloatingIPApi> apiOption = novaApi.getFloatingIPApi(region);
+            if (!apiOption.isPresent())
+                continue;
+            FloatingIPApi api = apiOption.get();
+            ServerApi serverApi = this.novaApi.getServerApi(region);
+            Server server = serverApi.get("7ef59397-9baf-4a23-98df-8358ee77a1ac");
+            FloatingIP floatingIP = api.list().get(2);
+            try {
+                api.addToServer(floatingIP.getIp(), server.getId());
+            } finally {
+                /*api.removeFromServer(floatingIP.getIp(), server.getId());
+                serverApi.delete(server.getId());*/
+            }
+        }
     }
 
     public void close() throws IOException {
