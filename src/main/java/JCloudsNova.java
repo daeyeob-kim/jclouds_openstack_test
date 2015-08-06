@@ -1,22 +1,36 @@
+import com.google.common.base.Optional;
+import com.google.common.base.Predicate;
+import com.google.common.cache.LoadingCache;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Multimap;
 import com.google.common.io.Closeables;
 import com.google.inject.Module;
 import org.jclouds.ContextBuilder;
+import org.jclouds.compute.domain.NodeMetadata;
 import org.jclouds.logging.slf4j.config.SLF4JLoggingModule;
 import org.jclouds.openstack.nova.v2_0.NovaApi;
+import org.jclouds.openstack.nova.v2_0.compute.functions.AllocateAndAddFloatingIpToNode;
 import org.jclouds.openstack.nova.v2_0.compute.loaders.LoadFloatingIpsForInstance;
+import org.jclouds.openstack.nova.v2_0.domain.Address;
+import org.jclouds.openstack.nova.v2_0.domain.FloatingIP;
 import org.jclouds.openstack.nova.v2_0.domain.Server;
 import org.jclouds.openstack.nova.v2_0.domain.regionscoped.RegionAndId;
+import org.jclouds.openstack.nova.v2_0.extensions.FloatingIPApi;
 import org.jclouds.openstack.nova.v2_0.features.ServerApi;
 import org.jclouds.openstack.nova.v2_0.options.CreateServerOptions;
 
 import java.io.Closeable;
 import java.io.IOException;
 import java.util.*;
+import java.util.concurrent.atomic.AtomicReference;
 
 public class JCloudsNova implements Closeable {
+    private static final int INCONSISTENCY_WINDOW = 5000;
     private final NovaApi novaApi;
     private final Set<String> regions;
+
+/*    private final ComputeService computeService;*/
+    //https://github.com/jclouds/jclouds-examples/blob/master/rackspace/src/main/java/org/jclouds/examples/rackspace/cloudservers/ListServersWithFiltering.java
 
     public static void main(String[] args) throws IOException {
         JCloudsNova jcloudsNova = new JCloudsNova();
@@ -29,7 +43,8 @@ public class JCloudsNova implements Closeable {
 //            jcloudsNova.stopServers();
 //            jcloudsNova.createInstance();
 //            System.out.println(jcloudsNova.getInstancesInfo().get(1).getId());
-            System.out.println(jcloudsNova.instanceNameToId("test_api_create_instance", jcloudsNova.getInstancesInfo()));
+//            System.out.println(jcloudsNova.instanceNameToId("test_api_create_instance", jcloudsNova.getInstancesInfo()));
+            jcloudsNova.addFloatingIp();
             jcloudsNova.close();
         } catch (Exception e) {
             e.printStackTrace();
@@ -51,6 +66,12 @@ public class JCloudsNova implements Closeable {
                 .modules(modules)
                 .buildApi(NovaApi.class);
         regions = novaApi.getConfiguredRegions();
+
+/*       ComputeServiceContext context = ContextBuilder.newBuilder(PROVIDER)
+                .credentials(username, apiKey)
+                .buildView(ComputeServiceContext.class);
+        computeService = context.getComputeService();*/
+
     }
 
     //인스턴스의 이름과 전체 인스턴스의 리스트를 전달하면 인스턴스의 ID출력
@@ -61,6 +82,7 @@ public class JCloudsNova implements Closeable {
         }
         return null;
     }
+
     //현재 서버 전체의 리스트를 출력
     private void listServers() {
         for (String region : regions) {
@@ -71,6 +93,7 @@ public class JCloudsNova implements Closeable {
             }
         }
     }
+
     //현재 서버 전체의 리스트를 list에 담아서 리턴
     private List<Server> getInstancesInfo(){
         List<Server> servers = new ArrayList<Server>();
@@ -83,6 +106,7 @@ public class JCloudsNova implements Closeable {
         }
         return servers;
     }
+
     //인스턴스 id를 입력, 해당 인스턴스의 정보를 출력
     private void getInstanceInfo(String instanceId) {
         for (String region : regions) {
@@ -138,7 +162,7 @@ public class JCloudsNova implements Closeable {
         }
     }
 
-   //인스턴스 id를 입력하면, 할당된 floating ip를 출력
+   //인스턴스 id를 입력하면, 할당된 floating ip를 출력 (수정필요)
     private String loadFloatingIpsForInstance(String instatnceId) {
         for (String region : regions) {
 
@@ -151,8 +175,8 @@ public class JCloudsNova implements Closeable {
                 Iterator iterator = tmp.iterator();
                 while (iterator.hasNext()) {
                     Object element = iterator.next();
-                    if(fromColonStringToMap("FloatingIP",element.toString()).get("ip").toString() != null)
-                        return fromColonStringToMap("FloatingIP",element.toString()).get("ip").toString();
+                    if(fromEqualsStringToMap("FloatingIP", element.toString()).get("ip").toString() != null)
+                        return fromEqualsStringToMap("FloatingIP", element.toString()).get("ip").toString();
                 }
             } catch (Exception e) {
                 e.printStackTrace();
@@ -161,22 +185,55 @@ public class JCloudsNova implements Closeable {
         return null;
     }
 
+    public void addFloatingIp() throws Exception {
+        for (String region : regions) {
+            Optional<? extends FloatingIPApi> apiOption = novaApi.getFloatingIPApi(region);
+            if (!apiOption.isPresent())
+                continue;
+            FloatingIPApi api = apiOption.get();
+            ServerApi serverApi = this.novaApi.getServerApi(region);
+            Server server = serverApi.get("34385ccd-7674-4e6f-bbfc-debaf259c1d0");
+            FloatingIP floatingIP = null;
+            for(int i=0,n=api.list().size();i<n;i++) {
+                if (isFixedIPNull(api.list().get(i).toString()) == true) {
+                    floatingIP = api.list().get(i);
+                    break;
+                }
+                System.out.println("i="+i);
+            }
+            try {
+                api.addToServer(floatingIP.getIp(), server.getId());
+            } finally {
+                /*api.removeFromServer(floatingIP.getIp(), server.getId());
+                serverApi.delete(server.getId());*/
+            }
+        }
+    }
+
+    public void close() throws IOException {
+        Closeables.close(novaApi, true);
+    }
+
+    public boolean isFixedIPNull(String ipdataToString){ //FloatingIP{id=d3c731a4-726d-492e-ace8-36393dd603a7, ip=10.0.1.185, fixedIp=null, instanceId=null, pool=public2}
+        Map tmpMap = fromEqualsStringToMap("FloatingIP",ipdataToString);
+        if(tmpMap.get("fixedIp").equals("null"))
+            return true;
+        return false;
+    }
+
+
     //CustomString 파서..
     //FloatingIP{id=62c10231-126d-40db-aca3-989ab76e6a40, ip=10.0.1.183, fixedIp=10.0.0.25, instanceId=ef9484e8-99e2-4878-b1e9-0785fadc5415, pool=public2}
     //형식의 String을 map에 담음
-    private Map fromColonStringToMap(String title,String inputString){
+    private Map fromEqualsStringToMap(String title,String inputString){
         Map<String, String> tmpMap = new HashMap<String, String>();
         String[] pairs = inputString.trim().substring(title.length()+1,inputString.length()-1).split(",");
         for (int i=0;i<pairs.length;i++) {
             String pair = pairs[i];
             String[] keyValue = pair.split("=");
             tmpMap.put(keyValue[0].trim(), keyValue[1].trim());
-            System.out.println(keyValue[1].trim());
         }
         return tmpMap;
     }
 
-    public void close() throws IOException {
-        Closeables.close(novaApi, true);
-    }
 }
